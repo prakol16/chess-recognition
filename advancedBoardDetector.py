@@ -41,12 +41,12 @@ houghBoard = [[10, 100, 16], [10, 100, 16]]
 
 # houghGrid[0][x] = horizontal grid params and houghGrid[1][x] = vertical grid params
 # houghGrid[x][0] = min_dist, houghGrid[x][1] = threshhold, and houghGrid[x][2] = numpeaks
-houghGrid = [[10, 5, 9], [10, 5, 9]]
+houghGrid = [[20, 5, 9], [20, 5, 9]]
 short_cut_board = False # If False it performs find board operations first; otherwise, it does not at all
 
 
 # Hyperparams Graping
-pOrgin = False # Plots the original image
+pOrgin = True # Plots the original image
 pProImg = False # Plots the original image after pre processing
 hBoardLines = False # Plots horizontal lines when finding board edges
 vBoardLines = False # Plots vertical lines when finding board edges
@@ -56,7 +56,7 @@ gGrid = True # Plots out board grid lines
 pInter = True # Plots out the grid lines intersections (Needs pGrid to be True to plot)
 gCorner = True # Plots out corner points
 gNeigh = False # Plots out 8 selected corner points and their closest appropriate neighbors
-pDecompPeices = False # Plots chess board as image_arr
+pDecompPeices = True # Plots chess board as image_arr
 
 
 
@@ -104,10 +104,8 @@ def orderPeiceImg(img_arr): # Test this
     for i in range(8):
         sort1 = sorted(left_over_arr, key=lambda arg: arg[0][1])
         left_over_arr = sort1[8:]
-        print(len(left_over_arr))
         sort2 = sorted(sort1[:8], key=lambda arg: arg[0][0])
         new_arr = new_arr + sort2[:8]
-    print(len(new_arr))
     return new_arr
 
 
@@ -204,7 +202,7 @@ def getBoard(image, plot=False):
             t2 = p2[1] - ((p2[0] - j) * s2) if i < p2[0] else p2[1] + ((j - p2[0]) * s2)
             if s2 > 0:
                 t2 = p2[1] + ((p2[0] - j) * s2) if i < p2[0] else p2[1] - ((j - p2[0]) * s2)
-            if i - offset < t2:
+            if i - (offset * 1) < t2:
                 image[i][j] = random.randint(0, 255)
 
             p3, s3 = vl[vl_high[1]]
@@ -255,6 +253,25 @@ def getGridLines(image, plot=False):
     vh, vq, vd = hough_line_peaks(vhspace, vtheta, vdist, min_distance=houghGrid[1][0], threshold=houghGrid[1][1], num_peaks=houghGrid[1][2])
     vlines = [[vd[i], vq[i]] for i in range(vq.shape[0])]
 
+    def findCornerLines(hl, vl):
+        hh = [-1, None]
+        for r, t in hl:
+            avrg = (r / np.sin(t)) - (image_size[0] / (2 * np.tan(t)))
+            if avrg > hh[0]:
+                hh[0] = avrg
+                hh[1] = [r, t]
+
+        vh = [-1, None]
+        for r, t in vl:
+            avrg = (r / np.cos(t)) - (image_size[1] * np.tan(t) / 2)
+            if avrg > vh[0]:
+                vh[0] = avrg
+                vh[1] = [r, t]
+        hl.remove(hh[1])
+        vl.remove(vh[1])
+        return hl, vl
+
+
     # Computes the intersection of all grid lines
     def intersections(h, v):
         points = []
@@ -267,10 +284,22 @@ def getGridLines(image, plot=False):
         return np.array(points)
 
     dots = intersections(hlines, vlines)
+
+    hl = hlines.copy()
+    vl = vlines.copy()
+    hl, vl = findCornerLines(hl, vl)
+    corners = intersections(hl, vl)
+
     if pInter:
         plt.imshow(org_img, cmap='gray')
         for point in dots:
             x, y = point
+            plt.plot(x, y, marker="o", markersize=5, markeredgecolor="red", markerfacecolor="green")
+        plt.show()
+
+    if gCorner:
+        plt.imshow(image, cmap='gray')
+        for x, y in corners:
             plt.plot(x, y, marker="o", markersize=5, markeredgecolor="red", markerfacecolor="green")
         plt.show()
 
@@ -285,10 +314,11 @@ def getGridLines(image, plot=False):
         point_slope_form.append([point, slope])
     if plot: plt.show()
 
-    return point_slope_form, dots
+    return corners, dots
 
 
 # Finds all "Corners" from gridline intersections
+'''
 def findCorners(dots, img=None):
     corners = sorted(dots.tolist())[:-9]
     corners = sorted(corners, key=lambda p: p[1])[:-8]
@@ -298,7 +328,7 @@ def findCorners(dots, img=None):
             plt.plot(x, y, marker="o", markersize=5, markeredgecolor="red", markerfacecolor="green")
         plt.show()
     return corners
-
+'''
 
 # For each corner it computes the it neighbor points i.e the point directly to its right and directly below it
 def getNeighboorPoints(corners, dots, margin=20, img=None):
@@ -365,19 +395,6 @@ def getPieceImgs(neigh_arr, image, window_factor=0.5):
     return img_arr
 
 
-# Helper function for printing out chess board as decomposed pieces
-def plotBoardHelper(): # This needs to be fixed
-    index_arr = []
-    for i in range(8):
-        index_arr.append(i)
-    index = 8
-    for i in range(7):
-        index += 8
-        for j in range(1, 9):
-            index_arr.append(index - j)
-    return index_arr
-
-
 # Succinctly combine all the above functions and return the image arr that the CNN will use
 # Image should be in PIL form
 def fullyProcess(image):
@@ -387,13 +404,10 @@ def fullyProcess(image):
     if pProImg:
         plt.imshow(greyScale(image), cmap='gray')
         plt.show()
-    cb = image if gCorner else None
     nb = image if gNeigh else None
-    _, dots = getGridLines(image, plot=gGrid)
-    corners = findCorners(dots, img=cb)
+    corners, dots = getGridLines(image, plot=gGrid)
     neigh = getNeighboorPoints(corners, dots, margin=marg, img=nb)
     res = getPieceImgs(neigh, image, window_factor=wf)
-    proper_index = plotBoardHelper()
     if pDecompPeices:
         f, ax = plt.subplots(8, 8)
         track_ind = 0
@@ -404,13 +418,19 @@ def fullyProcess(image):
                 track_ind += 1
         plt.show()
 
-    return res, proper_index
+    return res
 
+'''
+already_have = []
+for file in os.listdir('/Users/rainjuhl/PycharmProjects/pythonProject/decompTest'):
+    already_have.append(str(file[0:-4]))
 
 for image in os.listdir('/Users/rainjuhl/PycharmProjects/pythonProject/test'):
+    if image == '_annotations.createml.json' or str(image) in already_have:
+        continue
+    name = image
+    print(image)
     image = Image.open(os.path.join('/Users/rainjuhl/PycharmProjects/pythonProject/test', image))
     img_arr = fullyProcess(image)
-    break
-    # np.save(os.path.join('/Users/rainjuhl/PycharmProjects/pythonProject/decompTest', image), np.asarray(img_arr))
-
-
+    np.save(os.path.join('/Users/rainjuhl/PycharmProjects/pythonProject/decompTest', name), np.asarray(img_arr))
+'''
